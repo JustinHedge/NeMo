@@ -20,18 +20,49 @@ import torch
 from nemo.core.classes import ModelPT
 from nemo.utils import logging, AppState
 
+#from megatron import get_args, initialize_megatron
+from megatron import mpu
+
 from pytorch_lightning.core.lightning import LightningModule
 from pytorch_lightning.overrides.data_parallel import LightningDistributedDataParallel
 
 __all__ = ['NLPModel']
 
-
 class NLPModel(ModelPT, ABC):
 
-    def configure_ddp(self, model, device_ids):
-        """ Override LightingModule ddp if using model parallel. """
+    # def __init__(self):
+    #     super.__init__()
+    #     self._app_state = AppState()
 
-<<<<<<< HEAD
+    def init_ddp_connection(self, global_rank: int, world_size: int, is_slurm_managing_tasks: bool = True) -> None:
+        """ Override LightningModule DDP initialization """
+        app_state = AppState()
+
+        if app_state.model_parallel_size is not None:
+            # args = get_args()
+            # initialize_megatron()
+            LightningModule.init_ddp_connection(self, global_rank, world_size, is_slurm_managing_tasks)
+            if app_state.model_parallel_group is None:
+                mpu.initialize_model_parallel(app_state.model_parallel_size)
+                app_state.model_parallel_group = mpu.get_model_parallel_group()
+                app_state.data_parallel_group = mpu.get_data_parallel_group()
+                app_state.model_parallel_rank = torch.distributed.get_rank(
+                    group=app_state.model_parallel_group
+                )
+                app_state.data_parallel_rank = torch.distributed.get_rank(
+                    group=app_state.data_parallel_group
+                )
+                device_id = torch.cuda.current_device()
+                logging.info(f'device_id: {device_id}')
+                logging.info(f'mp_rank: {app_state.model_parallel_rank}')
+                logging.info(f'dp_rank: {app_state.data_parallel_rank}')
+
+        else:
+            return LightningModule.init_ddp_connection(self, global_rank, world_size, is_slurm_managing_tasks)
+
+    def configure_ddp(self, model, device_ids):
+        """ Override LightningModule ddp if using model parallel. """
+
         logging.info(f'device_ids: {device_ids}')
 
         app_state = AppState()
@@ -44,31 +75,16 @@ class NLPModel(ModelPT, ABC):
 
 
             device_id = app_state.device_id
-=======
-        app_state = AppState()
-
-        if app_state.model_parallel_size is not None:
-            logging.info("Configuring model parallel DDP.")
-            # with model parallelism, multiple GPUs form a large "logical GPU"
-            # this means that data parallel groups span multiple GPUs
-
-            # in PTL device_id is trainer.root_gpu
-            # TODO: add device_id/root_gpu to AppState?
-            device_id = self._trainer.root_gpu
->>>>>>> 8beb646ede05493fc9b5f69e28fa0317ee5a7337
             model = LightningDistributedDataParallel(
                 model,
                 device_ids=[device_id],
                 output_device=device_id,
-<<<<<<< HEAD
                 process_group=app_state.data_parallel_group
-=======
-                process_group=app_state.get_data_parallel_group()
->>>>>>> 8beb646ede05493fc9b5f69e28fa0317ee5a7337
             )
             return model
 
         else:
             logging.info("Did not detect model parallel using LightningModule.configure_ddp")
             return LightningModule.configure_ddp(self, model, device_ids)
+    
 
